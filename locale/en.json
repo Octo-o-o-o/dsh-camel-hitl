@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "CaMeL HITL Guard",
+    "description": "Persistent runtime CaMeL/Lethal-Trifecta taint tracking, monotonic ctx.tools.guard() enforcement, protected-path blocking, and digest-bound strong HITL confirmations for DeepSeek Harness."
+  }
+}

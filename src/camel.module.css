@@ -1,0 +1,142 @@
+.overlayBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(15, 23, 42, 0.58);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal {
+  width: min(560px, 100%);
+  max-height: 85vh;
+  overflow: auto;
+  border-radius: 14px;
+  background: var(--dsw-surface, #ffffff);
+  color: var(--dsw-ink, #0f172a);
+  border: 2px solid #dc2626;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.35);
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.modalTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #b91c1c;
+}
+
+.badgeRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.badgeDanger {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(220, 38, 38, 0.14);
+  color: #b91c1c;
+}
+
+.badgeWarn {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(180, 83, 9, 0.14);
+  color: #b45309;
+}
+
+.previewBox {
+  background: var(--dsw-canvas, #f8fafc);
+  border: 1px solid var(--dsw-border, #cbd5e1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.digestLine {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--dsw-muted-ink, #475569);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--dsw-border, #cbd5e1);
+  background: var(--dsw-surface, #ffffff);
+  color: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btnDanger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+
+.panelRoot {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 20px 24px;
+  gap: 16px;
+  overflow: auto;
+  font-family: var(--dsw-font-sans, system-ui, -apple-system, sans-serif);
+  color: var(--dsw-ink, #0f172a);
+  background: var(--dsw-canvas, #f8fafc);
+}
+
+.card {
+  background: var(--dsw-surface, #ffffff);
+  border: 1px solid var(--dsw-border, #e2e8f0);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
