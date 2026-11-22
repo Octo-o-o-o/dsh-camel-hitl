@@ -54,12 +54,12 @@ interface OfficialHostConnection {
 interface CordisLikeContext {
   get(key: string): unknown
   provide?(key: string, value: unknown): void
+  inject?(deps: readonly string[], callback: (ctx: CordisLikeContext) => void): () => void
   on?(event: string, listener: (...args: any[]) => unknown, options?: { prepend?: boolean }): () => void
   effect?(run: () => void | (() => void | Promise<void>), label?: string): void
 }
 
 export const name = 'dsh-camel-hitl'
-export const inject = { optional: ['connection', 'tools', 'sessions', 'sessionProjections'] }
 
 function resolveSession(exec: Record<string, unknown>): { id: string; raw?: any } {
   const agent = exec?.agent as { session?: { id?: string; events?: unknown[]; append?: (t: string, d: unknown) => unknown } } | undefined
@@ -134,9 +134,9 @@ export function apply(ctx: CordisLikeContext, config: CamelHitlConfig = {}): Gov
   const disposers: (() => void | Promise<void>)[] = []
 
   // 1. MONOTONIC GUARD (`ctx.tools.guard()`): CANNOT be bypassed by any `tools/pre-execute` waterfall listener!
-  const toolsService = ctx.get('tools') as ToolsServiceLike | undefined
-  if (toolsService && typeof toolsService.guard === 'function') {
-    disposers.push(
+  const attachToolsGuard = (toolsService: ToolsServiceLike, targetDisposers: (() => void | Promise<void>)[]) => {
+    if (!toolsService || typeof toolsService.guard !== 'function') return
+    targetDisposers.push(
       toolsService.guard((exec: Record<string, unknown>) => {
         const toolName = typeof exec?.name === 'string' ? exec.name : 'unknown_tool'
         const callId = typeof exec?.callId === 'string' ? exec.callId : 'unknown-call'
@@ -218,6 +218,23 @@ export function apply(ctx: CordisLikeContext, config: CamelHitlConfig = {}): Gov
         return undefined
       }),
     )
+  }
+
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['tools'], (scope) => {
+      const ts = scope.get('tools') as ToolsServiceLike | undefined
+      if (!ts) return
+      const localDisposers: (() => void | Promise<void>)[] = []
+      attachToolsGuard(ts, localDisposers)
+      scope.effect?.(() => async () => {
+        for (const d of localDisposers) {
+          try { await d() } catch { /* ignore */ }
+        }
+      }, 'dsh-camel-hitl: monotonic tools guard')
+    })
+  } else {
+    const ts = ctx.get('tools') as ToolsServiceLike | undefined
+    if (ts) attachToolsGuard(ts, disposers)
   }
 
   // 2. PRE-EXECUTE WATERFALL: routes yellow->standard ctx.approval, red/export-class->Strong Confirmation Overlay
@@ -340,9 +357,9 @@ export function apply(ctx: CordisLikeContext, config: CamelHitlConfig = {}): Gov
   }
 
   // 5. Authenticated RPC endpoint `/api/dshCamelHitl`
-  const connection = ctx.get('connection') as OfficialHostConnection | undefined
-  if (connection?.fetch?.register) {
-    disposers.push(
+  const attachConnectionRoute = (connection: OfficialHostConnection, targetDisposers: (() => void | Promise<void>)[]) => {
+    if (!connection?.fetch?.register) return
+    targetDisposers.push(
       connection.fetch.register({
         path: '/api/dshCamelHitl',
         methods: ['POST'],
@@ -404,6 +421,23 @@ export function apply(ctx: CordisLikeContext, config: CamelHitlConfig = {}): Gov
         },
       }),
     )
+  }
+
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['connection'], (scope) => {
+      const conn = scope.get('connection') as OfficialHostConnection | undefined
+      if (!conn) return
+      const localDisposers: (() => void | Promise<void>)[] = []
+      attachConnectionRoute(conn, localDisposers)
+      scope.effect?.(() => async () => {
+        for (const d of localDisposers) {
+          try { await d() } catch { /* ignore */ }
+        }
+      }, 'dsh-camel-hitl: connection route')
+    })
+  } else {
+    const conn = ctx.get('connection') as OfficialHostConnection | undefined
+    if (conn) attachConnectionRoute(conn, disposers)
   }
 
   if (typeof ctx.effect === 'function') {

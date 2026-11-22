@@ -6,7 +6,7 @@
 
 ## 核心能力
 
-- **持久化污点追踪（重启/恢复/Fork 不丢失）**：在 `tools/post-execute` 捕获外部不可信数据源（`web_fetch`、`web_search`、`email_read`、`browser_*`、`kb_read`、未知 MCP 工具），写入 log-only `SessionEvent`（`governance/taint-observed`）并通过 `ctx.sessionProjections` 折叠恢复。
+- **持久化污点追踪（重启/恢复/Fork 不丢失）**：在 `tools/post-execute` 捕获外部不可信数据源（`web_fetch`、`web_search`、`email_read`、`browser_*`、`kb_read`、未知 MCP 工具），通过 `@deepseek-ai/dsh-session` 官方 `appendPluginRecord()` 写入 `ignorable: true` 插件事件（`plugin:dsh-camel-hitl/taint-observed`），并在会话重启/恢复/Fork 时从 `session.snapshotEvents()` 自动折叠恢复。
 - **不可绕过的单调守卫（`ctx.tools.guard()`）**：将敏感路径/Vault 黑名单与高危回执验签落在 `dsh` 官方单调守卫中，即使存在恶意插件通过 `{ prepend: true }` 在 `tools/pre-execute` 直接放行，也无法绕过最终拦截。
 - **分层 HITL 零冲突共存**：
   - `yellow × untrusted`（如读取外部网页后再写文件）返回标准 `{ kind: 'ask' }`，完全兼容原生 `ui-approval` 与 `@michengai/dsh-im-connect` 远程 IM 审批；

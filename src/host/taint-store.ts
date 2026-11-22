@@ -1,22 +1,45 @@
 import type { TaintObservation, TaintOrigin } from '../core/types.js'
 
-export const TAINT_SESSION_EVENT_TYPE = 'governance/taint-observed'
+/**
+ * Official DSH ignorable plugin record type (`plugin:<pkg>/<event>`).
+ * Using `@deepseek-ai/dsh-session`'s `appendPluginRecord()` sets `ignorable: true`
+ * so DSH session persistence ALWAYS resumes & forks sessions cleanly.
+ */
+export const TAINT_SESSION_EVENT_TYPE = 'plugin:dsh-camel-hitl/taint-observed'
+const LEGACY_TAINT_EVENT_TYPE = 'governance/taint-observed'
+
+interface SessionEventLike {
+  readonly type?: string
+  readonly data?: unknown
+  readonly payload?: unknown
+}
 
 interface SessionLike {
   readonly id?: string
-  readonly events?: readonly { readonly type?: string; readonly data?: unknown; readonly payload?: unknown }[]
+  readonly events?: readonly SessionEventLike[]
+  snapshotEvents?: () => readonly SessionEventLike[]
   append?: (type: string, data: unknown) => unknown
 }
 
-interface SessionProjectionsLike {
-  register?(unit: {
-    readonly key: string
-    readonly version: number
-    initial(): TaintObservation[]
-    reduce(state: TaintObservation[], event: { readonly type?: string; readonly data?: unknown }): TaintObservation[]
-    project?(state: TaintObservation[]): readonly TaintObservation[]
-  }): { stateOf?(session: unknown): readonly TaintObservation[]; dispose?(): void } | (() => void)
+type AppendPluginRecordFn = (session: unknown, type: string, data: unknown) => unknown
+
+let cachedAppendPluginRecord: AppendPluginRecordFn | null | undefined
+
+async function resolveAppendPluginRecord(): Promise<AppendPluginRecordFn | null> {
+  if (cachedAppendPluginRecord !== undefined) return cachedAppendPluginRecord
+  try {
+    // Resolved via DSH runtime module resolution when hosted inside dsh@0.2.2-rc.5
+    const specifier = '@deepseek-ai/dsh-session'
+    const mod = (await import(specifier)) as { appendPluginRecord?: AppendPluginRecordFn }
+    cachedAppendPluginRecord = typeof mod.appendPluginRecord === 'function' ? mod.appendPluginRecord : null
+  } catch {
+    cachedAppendPluginRecord = null
+  }
+  return cachedAppendPluginRecord
 }
+
+// Kick off eager non-blocking lookup so synchronous `record()` has it immediately after host boot
+void resolveAppendPluginRecord()
 
 const VALID_ORIGINS = new Set<string>([
   'rag',
@@ -31,6 +54,10 @@ const VALID_ORIGINS = new Set<string>([
   'inferred_from_tool',
 ])
 
+function isTaintEventType(type: unknown): boolean {
+  return type === TAINT_SESSION_EVENT_TYPE || type === LEGACY_TAINT_EVENT_TYPE
+}
+
 function parseTaintObservation(raw: unknown): TaintObservation | null {
   if (!raw || typeof raw !== 'object') return null
   const r = raw as Record<string, unknown>
@@ -44,67 +71,45 @@ function parseTaintObservation(raw: unknown): TaintObservation | null {
   }
 }
 
+function readSessionEvents(session: SessionLike): readonly SessionEventLike[] {
+  if (typeof session.snapshotEvents === 'function') {
+    try {
+      const snap = session.snapshotEvents()
+      if (Array.isArray(snap)) return snap
+    } catch {
+      /* fallback below */
+    }
+  }
+  return Array.isArray(session.events) ? session.events : []
+}
+
 /**
  * Durable session taint tracker:
- * - Writes `governance/taint-observed` log-only SessionEvents on untrusted tool completion
- * - Folds historical session logs via `ctx.sessionProjections` (or direct event replay)
- *   so session restart, resume, and fork NEVER erase untrusted taint state.
+ * - Writes `plugin:dsh-camel-hitl/taint-observed` ignorable plugin records via
+ *   `appendPluginRecord()` when running inside real `dsh@0.2.2-rc.5` (falling back
+ *   to `session.append()` in standalone mocks).
+ * - Rehydrates taint from `session.snapshotEvents()` (real DSH) or `session.events`
+ *   on `session/created`, `session/event`, and before policy evaluation so app
+ *   restart, resume, and session fork NEVER erase untrusted taint state.
  */
 export class PersistentTaintStore {
   private readonly cache = new Map<string, TaintObservation[]>()
-  private projectionHandle: { stateOf?(session: unknown): readonly TaintObservation[]; dispose?(): void } | undefined
-  private projectionDisposer: (() => void) | undefined
 
-  attachProjections(sessionProjections: SessionProjectionsLike | undefined): void {
-    if (!sessionProjections || typeof sessionProjections.register !== 'function') return
-    try {
-      const reg = sessionProjections.register({
-        key: 'governanceTaint',
-        version: 1,
-        initial: () => [],
-        reduce: (state, event) => {
-          if (event?.type !== TAINT_SESSION_EVENT_TYPE) return state
-          const parsed = parseTaintObservation(event.data)
-          if (!parsed) return state
-          return [...state, parsed]
-        },
-        project: (state) => state,
-      })
-      if (typeof reg === 'function') {
-        this.projectionDisposer = reg
-      } else if (reg && typeof reg === 'object') {
-        this.projectionHandle = reg
-        if (typeof reg.dispose === 'function') {
-          this.projectionDisposer = () => reg.dispose!()
-        }
-      }
-    } catch {
-      /* optional host projection seam; falls back to direct event fold + cache */
-    }
+  attachProjections(_sessionProjections: unknown): void {
+    // Real DSH sessionProjections requires a Zod stateSchema; we deliberately keep
+    // zero runtime schema dependency and fold durably from `session.snapshotEvents()`
+    // + `session/created` + `session/event` on official ignorable `plugin:` records.
   }
 
-  /** Rehydrate taint lineage from an existing or forked Session's durable event log. */
+  /** Rehydrate taint lineage from an existing, resumed, or forked Session's durable log. */
   hydrateFromSession(session: SessionLike | undefined): readonly TaintObservation[] {
     if (!session || typeof session.id !== 'string') return []
 
-    // 1. Prefer official sessionProjections state when mounted
-    if (this.projectionHandle && typeof this.projectionHandle.stateOf === 'function') {
-      try {
-        const projected = this.projectionHandle.stateOf(session)
-        if (Array.isArray(projected) && projected.length > 0) {
-          this.mergeIntoCache(session.id, projected)
-          return this.cache.get(session.id) ?? []
-        }
-      } catch {
-        /* fallback to direct event replay */
-      }
-    }
-
-    // 2. Fallback: fold durable events directly from session.events (handles resume & fork seeds)
-    if (Array.isArray(session.events)) {
+    const events = readSessionEvents(session)
+    if (events.length > 0) {
       const replayed: TaintObservation[] = []
-      for (const ev of session.events) {
-        if (ev?.type !== TAINT_SESSION_EVENT_TYPE) continue
+      for (const ev of events) {
+        if (!isTaintEventType(ev?.type)) continue
         const parsed = parseTaintObservation(ev.data ?? ev.payload)
         if (parsed) replayed.push(parsed)
       }
@@ -116,8 +121,8 @@ export class PersistentTaintStore {
     return this.cache.get(session.id) ?? []
   }
 
-  observeEvent(sessionId: string, event: { readonly type?: string; readonly data?: unknown; readonly payload?: unknown }): void {
-    if (event?.type !== TAINT_SESSION_EVENT_TYPE) return
+  observeEvent(sessionId: string, event: SessionEventLike): void {
+    if (!isTaintEventType(event?.type)) return
     const parsed = parseTaintObservation(event.data ?? event.payload)
     if (!parsed) return
     this.mergeIntoCache(sessionId, [parsed])
@@ -135,11 +140,33 @@ export class PersistentTaintStore {
       observedAt: new Date().toISOString(),
     }
     this.mergeIntoCache(sessionId, [full])
-    if (session && typeof session.append === 'function') {
-      try {
-        session.append(TAINT_SESSION_EVENT_TYPE, full)
-      } catch {
-        /* outside open turn or read-only session: in-memory cache still preserves taint */
+
+    if (session) {
+      // Real DSH Session: MUST use `appendPluginRecord` so `ignorable: true` is set!
+      if (typeof session.snapshotEvents === 'function') {
+        if (typeof cachedAppendPluginRecord === 'function') {
+          try {
+            cachedAppendPluginRecord(session, TAINT_SESSION_EVENT_TYPE, full)
+          } catch {
+            /* detached/read-only session: in-memory cache still preserves taint */
+          }
+        } else {
+          void resolveAppendPluginRecord().then((fn) => {
+            if (!fn) return
+            try {
+              fn(session, TAINT_SESSION_EVENT_TYPE, full)
+            } catch {
+              /* ignore */
+            }
+          })
+        }
+      } else if (typeof session.append === 'function') {
+        // Standalone test mock session
+        try {
+          session.append(TAINT_SESSION_EVENT_TYPE, full)
+        } catch {
+          /* ignore */
+        }
       }
     }
     return full
@@ -159,11 +186,6 @@ export class PersistentTaintStore {
   }
 
   dispose(): void {
-    try {
-      this.projectionDisposer?.()
-    } catch {
-      /* ignore */
-    }
     this.cache.clear()
   }
 

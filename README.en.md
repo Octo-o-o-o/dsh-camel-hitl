@@ -6,7 +6,7 @@
 
 ## Features
 
-- **Durable Session Taint Tracking**: Persists untrusted data observations (`web_fetch`, `email_read`, `browser_*`, `kb_read`, unknown MCP tools) as log-only `governance/taint-observed` SessionEvents folded via `ctx.sessionProjections` so restarts, resumes, and session forks never clear taint.
+- **Durable Session Taint Tracking**: Persists untrusted data observations (`web_fetch`, `email_read`, `browser_*`, `kb_read`, unknown MCP tools) as official `ignorable: true` plugin records (`plugin:dsh-camel-hitl/taint-observed`) via `@deepseek-ai/dsh-session`'s `appendPluginRecord()` and rehydrates from `session.snapshotEvents()` so restarts, resumes, and session forks never clear taint.
 - **Un-bypassable Monotonic Guard (`ctx.tools.guard()`)**: Enforces protected-path/vault denylists and verifies single-use, process-ephemeral HMAC receipts bound to `(exec.token, callId, canonicalArgsSha256)` right before tool dispatch—defeating `{ prepend: true }` waterfall bypass attempts.
 - **Zero-Conflict Layered HITL**: Routes `yellow × untrusted` calls through native `ctx.approval` (fully compatible with `ui-approval` and `@michengai/dsh-im-connect`), while isolating `red` and `export-class` actions into a local-only, non-rememberable `shell.overlay` Strong Confirmation modal (never colliding with `conversation.approval.detail`).
 - **Loose Cross-Plugin Integration**: Exposes `governanceTaint` and automatically logs enforcement events to `dsh-audit-ledger` when installed.

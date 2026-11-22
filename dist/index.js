@@ -106,7 +106,8 @@ var READ_ONLY_CLEAN_TOOLS = /* @__PURE__ */ new Set([
   "glob",
   "get_goal",
   "todo_read",
-  "todo_list"
+  "todo_list",
+  "kb_list_roots"
 ]);
 var EXTERNAL_UNTRUSTED_READERS = {
   web_fetch: "url_fetch",
@@ -129,20 +130,27 @@ var EXTERNAL_UNTRUSTED_READERS = {
   data_query: "database_result",
   subagent: "delegated_agent"
 };
+var SHELL_EXECUTION_TOOLS = /* @__PURE__ */ new Set(["bash", "pwsh", "shell", "terminal_send"]);
 var WORKSPACE_MUTATION_TOOLS = /* @__PURE__ */ new Set([
   "write_file",
+  "save_file",
   "edit_file",
+  "patch_file",
   "str_replace_editor",
+  "replace_file_content",
+  "multi_replace_file_content",
   "fs_write",
   "fs_edit",
   "fs_copy",
   "fs_move",
   "fs_mkdir",
   "apply_patch",
-  "bash",
-  "pwsh",
-  "shell",
-  "terminal_send"
+  "memory_save",
+  "save_memory",
+  "memory_write",
+  "distill_memory",
+  "update_memory",
+  "upsert_memory"
 ]);
 var EXPORT_CLASS_RE = /(?:^|_|-|:)(?:email_send|send_email|bulk_email|mail_send|pdf_sign|sign_document|vault_export|vault_delete|vault_reset|vault_credential|data_export|publish|deploy|webhook_send|http_post|transfer_funds)(?:$|_|-)/i;
 var RED_DESTRUCTIVE_TOOL_RE = /(?:^|_|-|:)(?:delete|remove|rm|drop|truncate|purge|wipe|revoke|force_push)(?:$|_|-)/i;
@@ -201,7 +209,7 @@ function classifyTool(toolName, args, config = {}) {
       reason: "Read-only local workspace inspection tool"
     };
   }
-  if (WORKSPACE_MUTATION_TOOLS.has(lower)) {
+  if (SHELL_EXECUTION_TOOLS.has(lower)) {
     const cmdText = extractCommandText(args);
     if (cmdText && DESTRUCTIVE_SHELL_RE.test(cmdText)) {
       return {
@@ -217,7 +225,15 @@ function classifyTool(toolName, args, config = {}) {
       tier: "yellow",
       untrustedOutput: true,
       outputOrigin: "inferred_from_tool",
-      reason: "Workspace mutation or shell execution tool"
+      reason: "Shell execution tool (output may contain untrusted external data)"
+    };
+  }
+  if (WORKSPACE_MUTATION_TOOLS.has(lower)) {
+    return {
+      toolName: normalized,
+      tier: "yellow",
+      untrustedOutput: false,
+      reason: "Local workspace or memory write tool (receipt-only output)"
     };
   }
   const isMcp = lower.startsWith("mcp:") || lower.includes("__") || lower.startsWith("mcp_");
@@ -531,7 +547,21 @@ var StrongConfirmBroker = class {
 };
 
 // src/host/taint-store.ts
-var TAINT_SESSION_EVENT_TYPE = "governance/taint-observed";
+var TAINT_SESSION_EVENT_TYPE = "plugin:dsh-camel-hitl/taint-observed";
+var LEGACY_TAINT_EVENT_TYPE = "governance/taint-observed";
+var cachedAppendPluginRecord;
+async function resolveAppendPluginRecord() {
+  if (cachedAppendPluginRecord !== void 0) return cachedAppendPluginRecord;
+  try {
+    const specifier = "@deepseek-ai/dsh-session";
+    const mod = await import(specifier);
+    cachedAppendPluginRecord = typeof mod.appendPluginRecord === "function" ? mod.appendPluginRecord : null;
+  } catch {
+    cachedAppendPluginRecord = null;
+  }
+  return cachedAppendPluginRecord;
+}
+void resolveAppendPluginRecord();
 var VALID_ORIGINS = /* @__PURE__ */ new Set([
   "rag",
   "email_body",
@@ -544,6 +574,9 @@ var VALID_ORIGINS = /* @__PURE__ */ new Set([
   "delegated_agent",
   "inferred_from_tool"
 ]);
+function isTaintEventType(type) {
+  return type === TAINT_SESSION_EVENT_TYPE || type === LEGACY_TAINT_EVENT_TYPE;
+}
 function parseTaintObservation(raw) {
   if (!raw || typeof raw !== "object") return null;
   const r = raw;
@@ -556,53 +589,28 @@ function parseTaintObservation(raw) {
     observedAt: typeof r.observedAt === "string" ? r.observedAt : (/* @__PURE__ */ new Date()).toISOString()
   };
 }
-var PersistentTaintStore = class {
-  cache = /* @__PURE__ */ new Map();
-  projectionHandle;
-  projectionDisposer;
-  attachProjections(sessionProjections) {
-    if (!sessionProjections || typeof sessionProjections.register !== "function") return;
+function readSessionEvents(session) {
+  if (typeof session.snapshotEvents === "function") {
     try {
-      const reg = sessionProjections.register({
-        key: "governanceTaint",
-        version: 1,
-        initial: () => [],
-        reduce: (state, event) => {
-          if (event?.type !== TAINT_SESSION_EVENT_TYPE) return state;
-          const parsed = parseTaintObservation(event.data);
-          if (!parsed) return state;
-          return [...state, parsed];
-        },
-        project: (state) => state
-      });
-      if (typeof reg === "function") {
-        this.projectionDisposer = reg;
-      } else if (reg && typeof reg === "object") {
-        this.projectionHandle = reg;
-        if (typeof reg.dispose === "function") {
-          this.projectionDisposer = () => reg.dispose();
-        }
-      }
+      const snap = session.snapshotEvents();
+      if (Array.isArray(snap)) return snap;
     } catch {
     }
   }
-  /** Rehydrate taint lineage from an existing or forked Session's durable event log. */
+  return Array.isArray(session.events) ? session.events : [];
+}
+var PersistentTaintStore = class {
+  cache = /* @__PURE__ */ new Map();
+  attachProjections(_sessionProjections) {
+  }
+  /** Rehydrate taint lineage from an existing, resumed, or forked Session's durable log. */
   hydrateFromSession(session) {
     if (!session || typeof session.id !== "string") return [];
-    if (this.projectionHandle && typeof this.projectionHandle.stateOf === "function") {
-      try {
-        const projected = this.projectionHandle.stateOf(session);
-        if (Array.isArray(projected) && projected.length > 0) {
-          this.mergeIntoCache(session.id, projected);
-          return this.cache.get(session.id) ?? [];
-        }
-      } catch {
-      }
-    }
-    if (Array.isArray(session.events)) {
+    const events = readSessionEvents(session);
+    if (events.length > 0) {
       const replayed = [];
-      for (const ev of session.events) {
-        if (ev?.type !== TAINT_SESSION_EVENT_TYPE) continue;
+      for (const ev of events) {
+        if (!isTaintEventType(ev?.type)) continue;
         const parsed = parseTaintObservation(ev.data ?? ev.payload);
         if (parsed) replayed.push(parsed);
       }
@@ -613,7 +621,7 @@ var PersistentTaintStore = class {
     return this.cache.get(session.id) ?? [];
   }
   observeEvent(sessionId, event) {
-    if (event?.type !== TAINT_SESSION_EVENT_TYPE) return;
+    if (!isTaintEventType(event?.type)) return;
     const parsed = parseTaintObservation(event.data ?? event.payload);
     if (!parsed) return;
     this.mergeIntoCache(sessionId, [parsed]);
@@ -626,10 +634,27 @@ var PersistentTaintStore = class {
       observedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
     this.mergeIntoCache(sessionId, [full]);
-    if (session && typeof session.append === "function") {
-      try {
-        session.append(TAINT_SESSION_EVENT_TYPE, full);
-      } catch {
+    if (session) {
+      if (typeof session.snapshotEvents === "function") {
+        if (typeof cachedAppendPluginRecord === "function") {
+          try {
+            cachedAppendPluginRecord(session, TAINT_SESSION_EVENT_TYPE, full);
+          } catch {
+          }
+        } else {
+          void resolveAppendPluginRecord().then((fn) => {
+            if (!fn) return;
+            try {
+              fn(session, TAINT_SESSION_EVENT_TYPE, full);
+            } catch {
+            }
+          });
+        }
+      } else if (typeof session.append === "function") {
+        try {
+          session.append(TAINT_SESSION_EVENT_TYPE, full);
+        } catch {
+        }
       }
     }
     return full;
@@ -646,10 +671,6 @@ var PersistentTaintStore = class {
     return out;
   }
   dispose() {
-    try {
-      this.projectionDisposer?.();
-    } catch {
-    }
     this.cache.clear();
   }
   mergeIntoCache(sessionId, items) {
@@ -672,7 +693,6 @@ var PersistentTaintStore = class {
 
 // src/host/index.ts
 var name = "dsh-camel-hitl";
-var inject = { optional: ["connection", "tools", "sessions", "sessionProjections"] };
 function resolveSession(exec) {
   const agent = exec?.agent;
   const sess = agent?.session;
@@ -733,9 +753,9 @@ function apply(ctx, config = {}) {
     ctx.provide("governanceTaint", service);
   }
   const disposers = [];
-  const toolsService = ctx.get("tools");
-  if (toolsService && typeof toolsService.guard === "function") {
-    disposers.push(
+  const attachToolsGuard = (toolsService, targetDisposers) => {
+    if (!toolsService || typeof toolsService.guard !== "function") return;
+    targetDisposers.push(
       toolsService.guard((exec) => {
         const toolName = typeof exec?.name === "string" ? exec.name : "unknown_tool";
         const callId = typeof exec?.callId === "string" ? exec.callId : "unknown-call";
@@ -812,6 +832,25 @@ function apply(ctx, config = {}) {
         return void 0;
       })
     );
+  };
+  if (typeof ctx.inject === "function") {
+    ctx.inject(["tools"], (scope) => {
+      const ts = scope.get("tools");
+      if (!ts) return;
+      const localDisposers = [];
+      attachToolsGuard(ts, localDisposers);
+      scope.effect?.(() => async () => {
+        for (const d of localDisposers) {
+          try {
+            await d();
+          } catch {
+          }
+        }
+      }, "dsh-camel-hitl: monotonic tools guard");
+    });
+  } else {
+    const ts = ctx.get("tools");
+    if (ts) attachToolsGuard(ts, disposers);
   }
   if (typeof ctx.on === "function") {
     disposers.push(
@@ -919,9 +958,9 @@ function apply(ctx, config = {}) {
       })
     );
   }
-  const connection = ctx.get("connection");
-  if (connection?.fetch?.register) {
-    disposers.push(
+  const attachConnectionRoute = (connection, targetDisposers) => {
+    if (!connection?.fetch?.register) return;
+    targetDisposers.push(
       connection.fetch.register({
         path: "/api/dshCamelHitl",
         methods: ["POST"],
@@ -981,6 +1020,25 @@ function apply(ctx, config = {}) {
         }
       })
     );
+  };
+  if (typeof ctx.inject === "function") {
+    ctx.inject(["connection"], (scope) => {
+      const conn = scope.get("connection");
+      if (!conn) return;
+      const localDisposers = [];
+      attachConnectionRoute(conn, localDisposers);
+      scope.effect?.(() => async () => {
+        for (const d of localDisposers) {
+          try {
+            await d();
+          } catch {
+          }
+        }
+      }, "dsh-camel-hitl: connection route");
+    });
+  } else {
+    const conn = ctx.get("connection");
+    if (conn) attachConnectionRoute(conn, disposers);
   }
   if (typeof ctx.effect === "function") {
     ctx.effect(() => () => {
@@ -1007,7 +1065,6 @@ export {
   canonicalArgsSha256,
   classifyTool,
   evaluateTrifectaDecision,
-  inject,
   name,
   stableJsonStringify
 };

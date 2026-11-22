@@ -1,6 +1,7 @@
 {
   "meta": {
-    "title": "CaMeL 污点与强审批 (CaMeL HITL)",
-    "description": "面向 DeepSeek Harness 的持久化运行时污点追踪、不可绕过单调守卫（ctx.tools.guard）、敏感路径保护与参数摘要绑定强确认插件。"
+    "title": "CaMeL 污点追踪与强 HITL 守卫",
+    "description": "运行时不可信来源持久化污点追踪、ctx.tools.guard() 单调守卫、敏感路径封锁与参数摘要绑定一次性强确认插件。",
+    "detail": "./README.md"
   }
 }

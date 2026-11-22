@@ -20,6 +20,7 @@ const READ_ONLY_CLEAN_TOOLS = new Set([
   'get_goal',
   'todo_read',
   'todo_list',
+  'kb_list_roots',
 ])
 
 const EXTERNAL_UNTRUSTED_READERS: Readonly<Record<string, TaintOrigin>> = {
@@ -44,20 +45,28 @@ const EXTERNAL_UNTRUSTED_READERS: Readonly<Record<string, TaintOrigin>> = {
   subagent: 'delegated_agent',
 }
 
+const SHELL_EXECUTION_TOOLS = new Set(['bash', 'pwsh', 'shell', 'terminal_send'])
+
 const WORKSPACE_MUTATION_TOOLS = new Set([
   'write_file',
+  'save_file',
   'edit_file',
+  'patch_file',
   'str_replace_editor',
+  'replace_file_content',
+  'multi_replace_file_content',
   'fs_write',
   'fs_edit',
   'fs_copy',
   'fs_move',
   'fs_mkdir',
   'apply_patch',
-  'bash',
-  'pwsh',
-  'shell',
-  'terminal_send',
+  'memory_save',
+  'save_memory',
+  'memory_write',
+  'distill_memory',
+  'update_memory',
+  'upsert_memory',
 ])
 
 const EXPORT_CLASS_RE =
@@ -133,7 +142,7 @@ export function classifyTool(
     }
   }
 
-  if (WORKSPACE_MUTATION_TOOLS.has(lower)) {
+  if (SHELL_EXECUTION_TOOLS.has(lower)) {
     const cmdText = extractCommandText(args)
     if (cmdText && DESTRUCTIVE_SHELL_RE.test(cmdText)) {
       return {
@@ -149,7 +158,16 @@ export function classifyTool(
       tier: 'yellow',
       untrustedOutput: true,
       outputOrigin: 'inferred_from_tool',
-      reason: 'Workspace mutation or shell execution tool',
+      reason: 'Shell execution tool (output may contain untrusted external data)',
+    }
+  }
+
+  if (WORKSPACE_MUTATION_TOOLS.has(lower)) {
+    return {
+      toolName: normalized,
+      tier: 'yellow',
+      untrustedOutput: false,
+      reason: 'Local workspace or memory write tool (receipt-only output)',
     }
   }
 
