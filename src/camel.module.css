@@ -2,7 +2,7 @@
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: rgba(15, 23, 42, 0.58);
+  background: rgba(0, 0, 0, 0.62);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -13,11 +13,11 @@
   width: min(560px, 100%);
   max-height: 85vh;
   overflow: auto;
-  border-radius: 14px;
-  background: var(--dsw-surface, #ffffff);
-  color: var(--dsw-ink, #0f172a);
+  border-radius: var(--dsw-radius-md, 14px);
+  background: var(--dsw-alias-bg-layer-2, #1e293b);
+  color: var(--dsw-alias-label-primary, inherit);
   border: 2px solid #dc2626;
-  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.35);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
   padding: 20px 22px;
   display: flex;
   flex-direction: column;
@@ -35,7 +35,7 @@
   margin: 0;
   font-size: 16px;
   font-weight: 700;
-  color: #b91c1c;
+  color: #ef4444;
 }
 
 .badgeRow {
@@ -49,8 +49,8 @@
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  background: rgba(220, 38, 38, 0.14);
-  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
 }
 
 .badgeWarn {
@@ -58,25 +58,25 @@
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  background: rgba(180, 83, 9, 0.14);
-  color: #b45309;
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
 }
 
 .previewBox {
-  background: var(--dsw-canvas, #f8fafc);
-  border: 1px solid var(--dsw-border, #cbd5e1);
-  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1, rgba(148, 163, 184, 0.08));
+  border: 1px solid var(--dsw-alias-border-l3, rgba(148, 163, 184, 0.25));
+  border-radius: var(--dsw-radius-sm, 8px);
   padding: 10px 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: 11px;
   white-space: pre-wrap;
   word-break: break-all;
 }
 
 .digestLine {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: 11px;
-  color: var(--dsw-muted-ink, #475569);
+  color: var(--dsw-alias-label-secondary, #94a3b8);
 }
 
 .modalActions {
@@ -86,11 +86,11 @@
 }
 
 .btn {
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--dsw-border, #cbd5e1);
-  background: var(--dsw-surface, #ffffff);
-  color: inherit;
+  padding: 7px 13px;
+  border-radius: var(--dsw-radius-sm, 8px);
+  border: 1px solid var(--dsw-alias-border-l3, rgba(148, 163, 184, 0.3));
+  background: var(--dsw-alias-bg-layer-2, rgba(148, 163, 184, 0.1));
+  color: var(--dsw-alias-label-primary, inherit);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -109,15 +109,15 @@
   padding: 20px 24px;
   gap: 16px;
   overflow: auto;
-  font-family: var(--dsw-font-sans, system-ui, -apple-system, sans-serif);
-  color: var(--dsw-ink, #0f172a);
-  background: var(--dsw-canvas, #f8fafc);
+  font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
+  color: var(--dsw-alias-label-primary, inherit);
+  background: var(--dsw-alias-bg-base, transparent);
 }
 
 .card {
-  background: var(--dsw-surface, #ffffff);
-  border: 1px solid var(--dsw-border, #e2e8f0);
-  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2, rgba(148, 163, 184, 0.06));
+  border: 1px solid var(--dsw-alias-border-l3, rgba(148, 163, 184, 0.22));
+  border-radius: var(--dsw-radius-md, 10px);
   padding: 14px 16px;
 }
 
@@ -137,6 +137,6 @@
 }
 
 .mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: 11px;
 }
